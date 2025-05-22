@@ -122,4 +122,3 @@ class NN_najaroController():
         assert (len(state) == self.n_input), "State does not correspond with expected input size"
         action = self.model.forward(state)
         return action
-
