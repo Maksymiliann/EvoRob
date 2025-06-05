@@ -1,5 +1,5 @@
 from src.EA.CMAES import CMAES, CMAES_opts
-from src.EA.NSGA import NSGAII, NSGA_opts
+from src.EA.NSGA_sol import NSGAII, NSGA_opts
 from src.world.World import World
 from src.world.robot.controllers import MLP
 from src.world.robot.morphology.AntCustomRobot import AntRobot
@@ -259,7 +259,7 @@ def main():
     CMAES_opts["mutation_sigma"] = 0.33
 
     results_dir = os.path.join(ROOT_DIR, 'results', ENV_NAME, 'single')
-    ea_single = CMAES_sol(population_size, n_parameters, CMAES_opts, results_dir)
+    ea_single = CMAES(population_size, n_parameters, CMAES_opts, results_dir)
 
     run_EA_single(ea_single, world)
 
@@ -277,7 +277,7 @@ def main():
     NSGA_opts["crossover_prob"] = 0.5
 
     results_dir = os.path.join(ROOT_DIR, 'results', ENV_NAME, 'multi')
-    ea_multi_obj = NSGAII_sol(population_size, n_parameters, NSGA_opts, results_dir)
+    ea_multi_obj = NSGAII(population_size, n_parameters, NSGA_opts, results_dir)
 
     run_EA_multi(ea_multi_obj, world)
 
