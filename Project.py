@@ -20,7 +20,6 @@ import os
     Exercise3 body-brain: This is your first full body+brain evolution by adapting a custom Ant-v5 gym environment. 
     We adjust both leg lengths and controller weights for a locomotion task.   
 """
-
 ROOT_DIR = get_project_root()
 ENV_NAME = 'Ant_custom'
 
@@ -195,7 +194,7 @@ class AntWorld(World):
             max_episode_steps=self.n_steps,
         )
 
-        model = PPO("MlpPolicy", env, verbose=0)
+        model = PPO("MlpPolicy", env, verbose=0, device="cpu")
         model.learn(total_timesteps=20000)  # or adjust based on your lifetime
 
 
@@ -224,6 +223,7 @@ class AntWorld(World):
 
 def run_EA_single(ea_single, world):
     for gen in range(ea_single.n_gen):
+        print(gen)
         pop = ea_single.ask()
         fitnesses_gen = np.empty(len(pop))
         for index, genotype in enumerate(pop):
@@ -235,7 +235,7 @@ def run_EA_single(ea_single, world):
 def run_EA_multi(ea_multi, world):
     for gen in range(ea_multi.n_gen):
         pop = ea_multi.ask()
-        fitnesses_gen = np.empty((len(pop), 2))
+        fitnesses_gen = np.empty((len(pop), 3))
         for index, genotype in enumerate(pop):
             _, fit_ind = world.evaluate_individual(genotype)
             fitnesses_gen[index] = fit_ind
@@ -305,10 +305,10 @@ def main():
     world = AntWorld()
     n_parameters = world.n_params
 
-    population_size = 250
+    population_size = 5
     CMAES_opts["min"] = -1
     CMAES_opts["max"] = 1
-    CMAES_opts["num_parents"] = 100
+    CMAES_opts["num_parents"] = 2
     CMAES_opts["num_generations"] = 100
     CMAES_opts["mutation_sigma"] = 0.33
 
@@ -322,7 +322,7 @@ def main():
     world = AntWorld()
     n_parameters = world.n_params
 
-    population_size = 250
+    population_size = 5
     NSGA_opts["min"] = -1
     NSGA_opts["max"] = 1
     NSGA_opts["num_parents"] = population_size
@@ -337,7 +337,7 @@ def main():
 
     # %% visualise
     # TODO: Make a video of the best individual, and plot the fitness curve.
-    best_individual = np.load(os.path.join(results_dir, "99", "x_best.npy"))
+    best_individual = np.load(os.path.join(results_dir, "09", "x_best.npy"))
 
     points, connectivity_mat = world.geno2pheno(best_individual)
     robot = AntRobot(points, connectivity_mat, world.joint_limits, world.joint_axis, verbose=False)
