@@ -12,6 +12,7 @@ from stable_baselines3.common.env_util import make_vec_env
 import xml.etree.ElementTree as xml
 import gymnasium as gym
 import numpy as np
+import imageio
 import os
 
 """ Large programming projects are often modularised in different components. 
@@ -201,16 +202,16 @@ class AntWorld(World):
         # Evaluate final performance after training
         obs, _ = env.reset()
         total_reward = 0
-        total_forward = 0
-        total_ctrl_cost = 0
-        total_healthy = 0
+        # total_forward = 0
+        # total_ctrl_cost = 0
+        # total_healthy = 0
         for _ in range(self.n_steps):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, _, infos = env.step(action)
             total_reward += reward
-            total_forward += infos['reward_forward']
-            total_ctrl_cost += infos['ctrl_cost']
-            total_healthy += infos['healthy_reward']
+            # total_forward += infos['reward_forward']
+            # total_ctrl_cost += infos['ctrl_cost']
+            # total_healthy += infos['healthy_reward']
             
             if done:
                 break
@@ -218,12 +219,11 @@ class AntWorld(World):
 
         model.save("ppo_best_model.zip")
 
-        return total_reward, np.array([total_forward, -total_ctrl_cost, total_healthy])  # or also return multi-objective vector
+        return total_reward, None #np.array([total_forward, -total_ctrl_cost, total_healthy])  # or also return multi-objective vector
 
 
 def run_EA_single(ea_single, world):
     for gen in range(ea_single.n_gen):
-        print(gen)
         pop = ea_single.ask()
         fitnesses_gen = np.empty(len(pop))
         for index, genotype in enumerate(pop):
@@ -242,26 +242,64 @@ def run_EA_multi(ea_multi, world):
         ea_multi.tell(pop, fitnesses_gen)
 
 
-def generate_best_individual_video(world, video_name: str = 'EvoRob3_video.mp4'):
-    env = gym.make(ENV_NAME,
-                   robot_path=world.world_file,
-                   render_mode="rgb_array")
+# def generate_best_individual_video(world, video_name: str = 'EvoRob3_video.mp4'):
+#     env = gym.make(ENV_NAME,
+#                    robot_path=world.world_file,
+#                    render_mode="rgb_array")
+#     rewards_list = []
+
+#     observations, info = env.reset()
+#     frames = []
+#     for step in range(1000):
+#         frames.append(env.render())
+#         action = world.controller.get_action(observations)
+#         observations, rewards, terminated, truncated, info = env.step(action)
+#         rewards_list.append(rewards)
+#         if terminated:
+#             break
+#     print(np.sum(rewards_list))
+
+#     import imageio
+#     imageio.mimsave(video_name, frames, fps=30)  # Set frames per second (fps)
+#     env.close()
+
+
+def generate_best_individual_video(world, video_name: str = 'EvoRob3_video.mp4', model_path: str = 'ppo_best_model.zip'):
+    """
+    Generates a video of the best individual using a trained PPO model.
+    
+    Assumes:
+    - The robot morphology has already been defined in world and injected into the XML.
+    - The PPO model used to train this individual is saved at `model_path`.
+    """
+    # Load PPO model
+    model = PPO.load(model_path)
+
+    # Create the environment with rendered frames
+    env = gym.make(
+        ENV_NAME,
+        robot_path=world.world_file,
+        render_mode="rgb_array"
+    )
+
+    frames = []
     rewards_list = []
 
-    observations, info = env.reset()
-    frames = []
+    obs, _ = env.reset()
     for step in range(1000):
         frames.append(env.render())
-        action = world.controller.get_action(observations)
-        observations, rewards, terminated, truncated, info = env.step(action)
-        rewards_list.append(rewards)
-        if terminated:
+        action, _ = model.predict(obs, deterministic=True)
+        obs, reward, terminated, truncated, _ = env.step(action)
+        rewards_list.append(reward)
+        if terminated or truncated:
             break
-    print(np.sum(rewards_list))
 
-    import imageio
-    imageio.mimsave(video_name, frames, fps=30)  # Set frames per second (fps)
     env.close()
+
+    # Save video
+    imageio.mimsave(video_name, frames, fps=30)
+
+    print(f"Total reward: {np.sum(rewards_list)}")
 
 
 # def visualise_individual(genotype):
@@ -322,22 +360,22 @@ def main():
     world = AntWorld()
     n_parameters = world.n_params
 
-    population_size = 5
-    NSGA_opts["min"] = -1
-    NSGA_opts["max"] = 1
-    NSGA_opts["num_parents"] = population_size
-    NSGA_opts["num_generations"] = 100
-    NSGA_opts["mutation_prob"] = 0.3
-    NSGA_opts["crossover_prob"] = 0.5
+    # population_size = 5
+    # NSGA_opts["min"] = -1
+    # NSGA_opts["max"] = 1
+    # NSGA_opts["num_parents"] = population_size
+    # NSGA_opts["num_generations"] = 100
+    # NSGA_opts["mutation_prob"] = 0.3
+    # NSGA_opts["crossover_prob"] = 0.5
 
-    results_dir = os.path.join(ROOT_DIR, 'results', ENV_NAME, 'multi')
-    ea_multi_obj = NSGAII(population_size, n_parameters, NSGA_opts, results_dir)
+    # results_dir = os.path.join(ROOT_DIR, 'results', ENV_NAME, 'multi')
+    # ea_multi_obj = NSGAII(population_size, n_parameters, NSGA_opts, results_dir)
 
-    run_EA_multi(ea_multi_obj, world)
+    # run_EA_multi(ea_multi_obj, world)
 
     # %% visualise
     # TODO: Make a video of the best individual, and plot the fitness curve.
-    best_individual = np.load(os.path.join(results_dir, "09", "x_best.npy"))
+    best_individual = np.load(os.path.join(results_dir, "99", "x_best.npy"))
 
     points, connectivity_mat = world.geno2pheno(best_individual)
     robot = AntRobot(points, connectivity_mat, world.joint_limits, world.joint_axis, verbose=False)
