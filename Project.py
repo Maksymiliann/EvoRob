@@ -6,6 +6,9 @@ from src.world.robot.morphology.AntCustomRobot import AntRobot
 from src.utils.Filesys import get_project_root
 from gymnasium.vector import AsyncVectorEnv
 
+from stable_baselines3 import PPO
+from stable_baselines3.common.env_util import make_vec_env
+
 import xml.etree.ElementTree as xml
 import gymnasium as gym
 import numpy as np
@@ -29,10 +32,11 @@ class AntWorld(World):
 
         self.n_repeats = 3
         self.n_steps = 1000
-        self.controller = MLP.NNController(state_space, action_space)
-        self.n_weights = self.controller.n_params
+        # self.controller = MLP.NNController(state_space, action_space)
+        # self.n_weights = self.controller.n_params
 
-        self.n_params = self.n_weights + 8
+        # self.n_params = self.n_weights + 8
+        self.n_params = 8
         self.world_file = os.path.join(ROOT_DIR, "AntEnv.xml")
 
         self.joint_limits = [[-30, 30], [30, 70],
@@ -46,13 +50,14 @@ class AntWorld(World):
                            ]
 
     def geno2pheno(self, genotype):
-        control_weights = genotype[-self.n_weights:]
-        body_params = (genotype[:-self.n_weights] + 1.5) / 5 * 0.5 + 0.1
+        # control_weights = genotype[-self.n_weights:]
+        # body_params = (genotype[:-self.n_weights] + 1.5) / 5 * 0.5 + 0.1
+        body_params = (genotype + 1.5) / 5 * 0.5 + 0.1
         assert len(body_params) == 8
-        assert len(control_weights) == self.n_weights
+        # assert len(control_weights) == self.n_weights
         assert not np.any(body_params <= 0)
 
-        self.controller.geno2pheno(control_weights)
+        # self.controller.geno2pheno(control_weights)
 
         front_left_leg, front_left_ankle, front_right_leg, front_right_ankle, back_left_leg, back_left_ankle, back_right_leg, back_right_ankle, = body_params
 
@@ -112,60 +117,109 @@ class AntWorld(World):
         )
         return points, connectivity_mat
 
+    # def evaluate_individual(self, genotype):
+    #     points, connectivity_mat = self.geno2pheno(genotype)
+
+    #     robot = AntRobot(points, connectivity_mat, self.joint_limits, self.joint_axis, verbose=False)
+    #     robot.xml = robot.define_robot()
+    #     robot.write_xml()
+
+    #     # % Defining the Robot environment in MuJoCo
+    #     world = xml.parse(os.path.join(ROOT_DIR, 'src', 'world', 'robot', 'assets', "ant_world.xml"))
+    #     robot_env = world.getroot()
+
+    #     robot_env.append(xml.Element("include", attrib={"file": "AntRobot.xml"}))
+    #     world_xml = xml.tostring(robot_env, encoding='unicode')
+
+    #     with open(self.world_file, "w") as f:
+    #         f.write(world_xml)
+
+    #     envs = AsyncVectorEnv(
+    #         [
+    #             lambda i_env=i_env: gym.make(
+    #                 ENV_NAME,
+    #                 robot_path=self.world_file,
+    #                 reset_noise_scale=0.1,
+    #                 max_episode_steps=self.n_steps,
+    #             )
+    #             for i_env in range(self.n_repeats)
+    #         ]
+    #     )
+
+    #     rewards_full = np.zeros((self.n_steps, self.n_repeats))
+    #     multi_obj_rewards_full = np.zeros((self.n_steps, self.n_repeats, 2))  # TODO
+
+    #     observations, info = envs.reset()
+    #     done_mask = np.zeros(self.n_repeats, dtype=bool)
+    #     for step in range(self.n_steps):
+    #         actions = np.where(done_mask[:, None], 0, self.controller.get_action(observations.T).T)
+    #         observations, rewards, dones, truncated, infos = envs.step(actions)
+
+    #         # Store rewards for active environments only
+    #         rewards_full[step, done_mask == False] = rewards[done_mask == False]
+
+    #         multi_obj_reward = np.array([infos['reward_forward'], -infos['ctrl_cost']]).T  # TODO
+    #         multi_obj_rewards_full[step, done_mask == False] = multi_obj_reward[done_mask == False]
+
+    #         # Update the done mask based on the "done" and "truncated" flags
+    #         done_mask = done_mask | dones | truncated
+
+    #         # Optionally, break if all environments have terminated
+    #         if np.all(done_mask):
+    #             break
+    #     final_rewards = np.sum(rewards_full, axis=0)
+    #     final_multi_obj_rewards = np.sum(multi_obj_rewards_full, axis=0)
+    #     envs.close()
+    #     return np.mean(final_rewards), np.mean(final_multi_obj_rewards, axis=0)
+    
+
     def evaluate_individual(self, genotype):
         points, connectivity_mat = self.geno2pheno(genotype)
-
+        # Build the robot XML
         robot = AntRobot(points, connectivity_mat, self.joint_limits, self.joint_axis, verbose=False)
         robot.xml = robot.define_robot()
         robot.write_xml()
-
-        # % Defining the Robot environment in MuJoCo
-        world = xml.parse(os.path.join(ROOT_DIR, 'src', 'world', 'robot', 'assets', "ant_world.xml"))
-        robot_env = world.getroot()
-
+        # Inject into simulation environment
+        world_xml = xml.parse(os.path.join(ROOT_DIR, 'src', 'world', 'robot', 'assets', "ant_world.xml"))
+        robot_env = world_xml.getroot()
         robot_env.append(xml.Element("include", attrib={"file": "AntRobot.xml"}))
-        world_xml = xml.tostring(robot_env, encoding='unicode')
-
         with open(self.world_file, "w") as f:
-            f.write(world_xml)
+            f.write(xml.tostring(robot_env, encoding='unicode'))
 
-        envs = AsyncVectorEnv(
-            [
-                lambda i_env=i_env: gym.make(
-                    ENV_NAME,
-                    robot_path=self.world_file,
-                    reset_noise_scale=0.1,
-                    max_episode_steps=self.n_steps,
-                )
-                for i_env in range(self.n_repeats)
-            ]
+        # ---- PPO Training here ----
+        # Build a single gym environment for this individual
+        env = gym.make(
+            ENV_NAME,
+            robot_path=self.world_file,
+            reset_noise_scale=0.1,
+            max_episode_steps=self.n_steps,
         )
 
-        rewards_full = np.zeros((self.n_steps, self.n_repeats))
-        multi_obj_rewards_full = np.zeros((self.n_steps, self.n_repeats, 2))  # TODO
+        model = PPO("MlpPolicy", env, verbose=0)
+        model.learn(total_timesteps=20000)  # or adjust based on your lifetime
 
-        observations, info = envs.reset()
-        done_mask = np.zeros(self.n_repeats, dtype=bool)
-        for step in range(self.n_steps):
-            actions = np.where(done_mask[:, None], 0, self.controller.get_action(observations.T).T)
-            observations, rewards, dones, truncated, infos = envs.step(actions)
 
-            # Store rewards for active environments only
-            rewards_full[step, done_mask == False] = rewards[done_mask == False]
-
-            multi_obj_reward = np.array([infos['reward_forward'], -infos['ctrl_cost']]).T  # TODO
-            multi_obj_rewards_full[step, done_mask == False] = multi_obj_reward[done_mask == False]
-
-            # Update the done mask based on the "done" and "truncated" flags
-            done_mask = done_mask | dones | truncated
-
-            # Optionally, break if all environments have terminated
-            if np.all(done_mask):
+        # Evaluate final performance after training
+        obs, _ = env.reset()
+        total_reward = 0
+        total_forward = 0
+        total_ctrl_cost = 0
+        total_healthy = 0
+        for _ in range(self.n_steps):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, _, infos = env.step(action)
+            total_reward += reward
+            total_forward += infos['reward_forward']
+            total_ctrl_cost += infos['ctrl_cost']
+            total_healthy += infos['healthy_reward']
+            
+            if done:
                 break
-        final_rewards = np.sum(rewards_full, axis=0)
-        final_multi_obj_rewards = np.sum(multi_obj_rewards_full, axis=0)
-        envs.close()
-        return np.mean(final_rewards), np.mean(final_multi_obj_rewards, axis=0)
+        env.close() 
+
+        model.save("ppo_best_model.zip")
+
+        return total_reward, np.array([total_forward, -total_ctrl_cost, total_healthy])  # or also return multi-objective vector
 
 
 def run_EA_single(ea_single, world):
@@ -210,42 +264,42 @@ def generate_best_individual_video(world, video_name: str = 'EvoRob3_video.mp4')
     env.close()
 
 
-def visualise_individual(genotype):
-    world = AntWorld()
-    points, connectivity_mat = world.geno2pheno(genotype)
-    robot = AntRobot(points, connectivity_mat, world.joint_limits, world.joint_axis, verbose=False)
-    robot.xml = robot.define_robot()
-    robot.write_xml()
+# def visualise_individual(genotype):
+#     world = AntWorld()
+#     points, connectivity_mat = world.geno2pheno(genotype)
+#     robot = AntRobot(points, connectivity_mat, world.joint_limits, world.joint_axis, verbose=False)
+#     robot.xml = robot.define_robot()
+#     robot.write_xml()
 
-    # % Defining the Robot environment in MuJoCo
-    world_xml = xml.parse(os.path.join(ROOT_DIR, 'src', 'world', 'robot', 'assets', "ant_world.xml"))
-    robot_env = world_xml.getroot()
+#     # % Defining the Robot environment in MuJoCo
+#     world_xml = xml.parse(os.path.join(ROOT_DIR, 'src', 'world', 'robot', 'assets', "ant_world.xml"))
+#     robot_env = world_xml.getroot()
 
-    robot_env.append(xml.Element("include", attrib={"file": "AntRobot.xml"}))
-    world_xml = xml.tostring(robot_env, encoding='unicode')
-    with open(world.world_file, "w") as f:
-        f.write(world_xml)
+#     robot_env.append(xml.Element("include", attrib={"file": "AntRobot.xml"}))
+#     world_xml = xml.tostring(robot_env, encoding='unicode')
+#     with open(world.world_file, "w") as f:
+#         f.write(world_xml)
 
-    env = gym.make(ENV_NAME,
-                   robot_path=world.world_file,
-                   render_mode="human")
-    rewards_list = []
+#     env = gym.make(ENV_NAME,
+#                    robot_path=world.world_file,
+#                    render_mode="human")
+#     rewards_list = []
 
-    observations, info = env.reset()
-    for step in range(1000):
-        action = world.controller.get_action(observations)
-        observations, rewards, terminated, truncated, info = env.step(action)
-        rewards_list.append(rewards)
-        if terminated:
-            break
-    env.close()
-    print(np.sum(rewards_list))
+#     observations, info = env.reset()
+#     for step in range(1000):
+#         action = world.controller.get_action(observations)
+#         observations, rewards, terminated, truncated, info = env.step(action)
+#         rewards_list.append(rewards)
+#         if terminated:
+#             break
+#     env.close()
+#     print(np.sum(rewards_list))
 
 
 def main():
     # %% Understanding the world
-    genotype = np.random.uniform(-1, 1, 953)  # 8 body parameters, 945 NN weights
-    visualise_individual(genotype)
+    genotype = np.random.uniform(-1, 1, 8)  # 8 body parameters, 945 NN weights
+    # visualise_individual(genotype)
 
     # %% Optimise single-objective
     world = AntWorld()
@@ -264,7 +318,7 @@ def main():
     run_EA_single(ea_single, world)
 
     # %% Optimise multi-objective
-    # TODO implement the NSGAII
+    # TODO implement the NSGAII 
     world = AntWorld()
     n_parameters = world.n_params
 
